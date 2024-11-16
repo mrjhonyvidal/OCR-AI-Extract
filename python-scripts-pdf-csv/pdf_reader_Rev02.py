@@ -130,17 +130,33 @@ class InvoiceProcessorApp:
         print("Extracted Text from PDF and Images:\n", combined_text)
 
         prompt = f"""
-        You are an assistant designed to extract structured invoice details. Below is the invoice text:
+        You are a helpful assistant for extracting structured details from invoices. Below is the invoice text:
 
         {combined_text}
 
-        Your task:
-        1. Extract all details from the invoice explicitly, ensuring the "ContactName" is not confused with the "Ship To" or "Billing Address." If a logo or branding is present, prioritize that as the company name.
-        2. Ensure all lines of the shipping address and invoice details are extracted accurately.
-        3. Extract any email addresses found and assign them to "EmailAddress."
-        4. For ambiguous fields (e.g., multiple names), use context (e.g., addresses, invoice number location) to infer the most likely value.
+        Your task is to extract the following details:
+        1. *ContactName: Extract the company name based on branding text in the invoice (e.g., DUCK ISLAND). Avoid using supplier names like "Catercall Ltd". Ignore logos, URLs, or IP addresses.
+        2. EmailAddress: Extract the email address (e.g., custserv@nisbets.co.uk).
+        3. POAddressLine1-4: Extract up to 4 lines of the address. Use "Ship To:" or similar contextual clues.
+        4. POCity: Extract the city from the address.
+        5. PORegion: Extract the region (e.g., county/state) from the address.
+        6. POPostalCode: Extract the postal code (e.g., SM4 4LU).
+        7. POCountry: Extract the country (if present).
+        8. *InvoiceNumber: Extract the invoice number (e.g., 30114156).
+        9. *InvoiceDate: Extract the invoice date and format it as DD/MM/YYYY.
+        10. *DueDate: Calculate the due date based on the payment terms (e.g., net 30 days from the invoice date).
+        11. Total: Extract the total invoice value (e.g., 11.38 GBP).
+        12. InventoryItemCode, Description, and *Quantity: Extract these fields from the product description table, if present.
+        13. *UnitAmount: Extract the unit price of items, if present.
+        14. *AccountCode: Set to "540" by default unless another account code is explicitly mentioned.
+        15. *TaxType: Extract or default to "20% (VAT on Expenses)".
+        16. TaxAmount: Extract the tax value (e.g., 1.89 GBP).
+        17. TrackingName1: Extract any tracking names or descriptions (e.g., Despatch No).
+        18. TrackingOption1: Extract tracking options, such as order references (e.g., 32596160).
+        19. TrackingName2, TrackingOption2: Extract any additional tracking details, if present.
+        20. Currency: Extract or default to "GBP".
 
-        Output format:
+        Provide the results in this exact format:
         *ContactName: [Company Name]
         EmailAddress: [Email Address]
         POAddressLine1: [Address Line 1]
@@ -155,17 +171,17 @@ class InvoiceProcessorApp:
         *InvoiceDate: [Invoice Date]
         *DueDate: [Due Date]
         Total: [Invoice Total]
-        InventoryItemCode: [Code]
-        Description: [Description]
+        InventoryItemCode: [Item Code]
+        Description: [Product Description]
         *Quantity: [Quantity]
-        *UnitAmount: [Unit Amount]
+        *UnitAmount: [Unit Price]
         *AccountCode: [Account Code]
         *TaxType: [Tax Type]
         TaxAmount: [Tax Amount]
-        TrackingName1: [Tracking Name 1]
-        TrackingOption1: [Tracking Option 1]
-        TrackingName2: [Tracking Name 2]
-        TrackingOption2: [Tracking Option 2]
+        TrackingName1: [Tracking Name]
+        TrackingOption1: [Tracking Option]
+        TrackingName2: [Additional Tracking Name]
+        TrackingOption2: [Additional Tracking Option]
         Currency: [Currency]
         """
 
@@ -187,30 +203,7 @@ class InvoiceProcessorApp:
             for line in ai_extracted_data:
                 line = line.strip()
                 if "*ContactName" in line:
-                    extracted_name = line.split(":", 1)[1].strip()
-                    # Avoid incorrect names like 'Catercall Ltd'
-                    if "Catercall" not in extracted_name and "Ship To" not in extracted_name:
-                        data["*ContactName"] = extracted_name
-                    else:
-                        data["*ContactName"] = "Unknown (Check Invoice)"
-                elif "EmailAddress" in line:
-                    data["EmailAddress"] = line.split(":", 1)[1].strip()
-                elif "POAddressLine1" in line:
-                    data["POAddressLine1"] = line.split(":", 1)[1].strip()
-                elif "POAddressLine2" in line:
-                    data["POAddressLine2"] = line.split(":", 1)[1].strip()
-                elif "POAddressLine3" in line:
-                    data["POAddressLine3"] = line.split(":", 1)[1].strip()
-                elif "POAddressLine4" in line:
-                    data["POAddressLine4"] = line.split(":", 1)[1].strip()
-                elif "POCity" in line:
-                    data["POCity"] = line.split(":", 1)[1].strip()
-                elif "PORegion" in line:
-                    data["PORegion"] = line.split(":", 1)[1].strip()
-                elif "POPostalCode" in line:
-                    data["POPostalCode"] = line.split(":", 1)[1].strip()
-                elif "POCountry" in line:
-                    data["POCountry"] = line.split(":", 1)[1].strip()
+                    data["*ContactName"] = line.split(":", 1)[1].strip()
                 elif "*InvoiceNumber" in line:
                     data["*InvoiceNumber"] = line.split(":", 1)[1].strip()
                 elif "*InvoiceDate" in line:
@@ -226,29 +219,8 @@ class InvoiceProcessorApp:
                     # Calculate *UnitAmount and TaxAmount assuming VAT rate is 20%
                     data["*UnitAmount"] = f"{float(clean_total) / 1.2:.2f}"
                     data["TaxAmount"] = f"{float(clean_total) - float(data['*UnitAmount']):.2f}"
-                elif "InventoryItemCode" in line:
-                    data["InventoryItemCode"] = line.split(":", 1)[1].strip()
-                elif "Description" in line:
-                    data["Description"] = line.split(":", 1)[1].strip()
-                elif "*Quantity" in line:
-                    data["*Quantity"] = line.split(":", 1)[1].strip()
-                elif "*AccountCode" in line:
-                    data["*AccountCode"] = line.split(":", 1)[1].strip()
-                elif "*TaxType" in line:
-                    data["*TaxType"] = line.split(":", 1)[1].strip()
-                elif "TaxAmount" in line:
-                    tax_raw = line.split(":", 1)[1].strip()
-                    data["TaxAmount"] = re.sub(r"[^\d.]", "", tax_raw)
-                elif "TrackingName1" in line:
-                    data["TrackingName1"] = line.split(":", 1)[1].strip()
                 elif "TrackingOption1" in line:
                     data["TrackingOption1"] = line.split(":", 1)[1].strip()
-                elif "TrackingName2" in line:
-                    data["TrackingName2"] = line.split(":", 1)[1].strip()
-                elif "TrackingOption2" in line:
-                    data["TrackingOption2"] = line.split(":", 1)[1].strip()
-                elif "Currency" in line:
-                    data["Currency"] = line.split(":", 1)[1].strip()
 
         except Exception as e:
             print("Error with OpenAI API:", e)
