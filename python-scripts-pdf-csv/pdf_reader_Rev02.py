@@ -6,13 +6,15 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 import pdfplumber
 import csv
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI
 from datetime import datetime
 import calendar
 
 # Load environment variables from a .env file
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI()
+
+client.api_key = os.getenv("OPENAI_API_KEY")
 
 class InvoiceProcessorApp:
     def __init__(self, root):
@@ -107,8 +109,8 @@ class InvoiceProcessorApp:
         prompt += "Extract: Supplier name, Invoice number, purchase order number or reference, Value, Invoice date, and Due date."
 
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+            response = client.chat.completions.create(
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that extracts invoice details."},
                     {"role": "user", "content": prompt}
@@ -116,7 +118,7 @@ class InvoiceProcessorApp:
                 max_tokens=1000
             )
             
-            ai_response = response.choices[0].message['content'].strip()
+            ai_response = response.choices[0].message.content.strip()
             ai_extracted_data = ai_response.split("\n")
             
             for line in ai_extracted_data:
