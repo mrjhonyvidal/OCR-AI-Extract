@@ -171,3 +171,37 @@ cython_debug/
 /python-script-pdf-csv/Troubleshooting/
 /Troubleshooting/
 /Troubleshooting/*
+
+# Django specific:
+*.migrations/   # Ignore migration files
+
+# Ignore sensitive settings and environment files
+.env            # Environment variables file
+.envrc          # Direnv environment settings
+*.env           # Any other environment files
+
+# Static files and media
+/static/
+/media/
+/staticfiles/
+/static_root/
+/media_root/
+
+# PyCache and Python artifacts (already mostly covered)
+*.py[cod]
+__pycache__/
+
+# SQLite Database Files
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Runtime files
+*.pid
+*.swp
+*.swo
+
+# Ignore gunicorn logs
+gunicorn*.log
