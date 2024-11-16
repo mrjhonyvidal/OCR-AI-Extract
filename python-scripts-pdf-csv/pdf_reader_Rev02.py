@@ -1,5 +1,7 @@
 import os
 import re
+import pytesseract
+from pdf2image import convert_from_path
 import tkinter as tk
 from tkinter import filedialog, messagebox, Listbox
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -15,6 +17,10 @@ load_dotenv()
 client = OpenAI()
 
 client.api_key = os.getenv("OPENAI_API_KEY")
+
+# Define the path to Poppler binaries
+# Path to Poppler on macOS
+POPPLER_PATH = "/opt/homebrew/bin"
 
 class InvoiceProcessorApp:
     def __init__(self, root):
@@ -105,33 +111,69 @@ class InvoiceProcessorApp:
             for page in pdf.pages:
                 text += page.extract_text() or ""
 
-        prompt =f"""
-        You are a helpful assistant for extracting structured details from invoices. Below is the invoice text:
+        # Extract text from images using OCR
+        images = convert_from_path(file_path, dpi=300)
+               # Extract text from images using OCR
+        image_text = ""
+        try:
+            images = convert_from_path(file_path, dpi=300, poppler_path=POPPLER_PATH)
+            for image in images:
+                image_text += pytesseract.image_to_string(image)
+        except Exception as e:  # Catch all exceptions for missing Poppler or other issues
+            print(f"Error converting PDF to images or using OCR: {e}")
+            messagebox.showerror("PDF Conversion Error", f"Error processing the file: {e}")
+            return None
 
-        {text}
+        combined_text = text + "\n" + image_text
 
-        Your task is to extract the following details:
-        1. *ContactName: Extract the company name from the logo or branding text at the top of the invoice. If not found, use other references like the Supplier section.
-        2. *InvoiceNumber: Extract the invoice number.
-        3. *InvoiceDate: Extract the invoice date and format it as DD/MM/YYYY.
-        4. *DueDate: Calculate the due date based on the payment terms.
-        5. Total: Extract the total invoice value.
-        6. TrackingOption1: Identify the order reference or purchase order number.
+        # Debug: Log combined text for troubleshooting
+        print("Extracted Text from PDF and Images:\n", combined_text)
 
-        Provide the results in the format:
+        prompt = f"""
+        You are an assistant designed to extract structured invoice details. Below is the invoice text:
+
+        {combined_text}
+
+        Your task:
+        1. Extract all details from the invoice explicitly, ensuring the "ContactName" is not confused with the "Ship To" or "Billing Address." If a logo or branding is present, prioritize that as the company name.
+        2. Ensure all lines of the shipping address and invoice details are extracted accurately.
+        3. Extract any email addresses found and assign them to "EmailAddress."
+        4. For ambiguous fields (e.g., multiple names), use context (e.g., addresses, invoice number location) to infer the most likely value.
+
+        Output format:
         *ContactName: [Company Name]
+        EmailAddress: [Email Address]
+        POAddressLine1: [Address Line 1]
+        POAddressLine2: [Address Line 2]
+        POAddressLine3: [Address Line 3]
+        POAddressLine4: [Address Line 4]
+        POCity: [City]
+        PORegion: [Region]
+        POPostalCode: [Postal Code]
+        POCountry: [Country]
         *InvoiceNumber: [Invoice Number]
         *InvoiceDate: [Invoice Date]
         *DueDate: [Due Date]
         Total: [Invoice Total]
-        TrackingOption1: [Order Reference]
+        InventoryItemCode: [Code]
+        Description: [Description]
+        *Quantity: [Quantity]
+        *UnitAmount: [Unit Amount]
+        *AccountCode: [Account Code]
+        *TaxType: [Tax Type]
+        TaxAmount: [Tax Amount]
+        TrackingName1: [Tracking Name 1]
+        TrackingOption1: [Tracking Option 1]
+        TrackingName2: [Tracking Name 2]
+        TrackingOption2: [Tracking Option 2]
+        Currency: [Currency]
         """
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant"},
+                    {"role": "system", "content": "You are a helpful assistant for processing invoices."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1000
@@ -139,11 +181,36 @@ class InvoiceProcessorApp:
             
             ai_response = response.choices[0].message.content.strip()
             ai_extracted_data = ai_response.split("\n")
+
+            print("\nParsed AI Extracted Data:\n", ai_extracted_data)
             
             for line in ai_extracted_data:
                 line = line.strip()
                 if "*ContactName" in line:
-                    data["*ContactName"] = line.split(":", 1)[1].strip()
+                    extracted_name = line.split(":", 1)[1].strip()
+                    # Avoid incorrect names like 'Catercall Ltd'
+                    if "Catercall" not in extracted_name and "Ship To" not in extracted_name:
+                        data["*ContactName"] = extracted_name
+                    else:
+                        data["*ContactName"] = "Unknown (Check Invoice)"
+                elif "EmailAddress" in line:
+                    data["EmailAddress"] = line.split(":", 1)[1].strip()
+                elif "POAddressLine1" in line:
+                    data["POAddressLine1"] = line.split(":", 1)[1].strip()
+                elif "POAddressLine2" in line:
+                    data["POAddressLine2"] = line.split(":", 1)[1].strip()
+                elif "POAddressLine3" in line:
+                    data["POAddressLine3"] = line.split(":", 1)[1].strip()
+                elif "POAddressLine4" in line:
+                    data["POAddressLine4"] = line.split(":", 1)[1].strip()
+                elif "POCity" in line:
+                    data["POCity"] = line.split(":", 1)[1].strip()
+                elif "PORegion" in line:
+                    data["PORegion"] = line.split(":", 1)[1].strip()
+                elif "POPostalCode" in line:
+                    data["POPostalCode"] = line.split(":", 1)[1].strip()
+                elif "POCountry" in line:
+                    data["POCountry"] = line.split(":", 1)[1].strip()
                 elif "*InvoiceNumber" in line:
                     data["*InvoiceNumber"] = line.split(":", 1)[1].strip()
                 elif "*InvoiceDate" in line:
@@ -159,8 +226,29 @@ class InvoiceProcessorApp:
                     # Calculate *UnitAmount and TaxAmount assuming VAT rate is 20%
                     data["*UnitAmount"] = f"{float(clean_total) / 1.2:.2f}"
                     data["TaxAmount"] = f"{float(clean_total) - float(data['*UnitAmount']):.2f}"
+                elif "InventoryItemCode" in line:
+                    data["InventoryItemCode"] = line.split(":", 1)[1].strip()
+                elif "Description" in line:
+                    data["Description"] = line.split(":", 1)[1].strip()
+                elif "*Quantity" in line:
+                    data["*Quantity"] = line.split(":", 1)[1].strip()
+                elif "*AccountCode" in line:
+                    data["*AccountCode"] = line.split(":", 1)[1].strip()
+                elif "*TaxType" in line:
+                    data["*TaxType"] = line.split(":", 1)[1].strip()
+                elif "TaxAmount" in line:
+                    tax_raw = line.split(":", 1)[1].strip()
+                    data["TaxAmount"] = re.sub(r"[^\d.]", "", tax_raw)
+                elif "TrackingName1" in line:
+                    data["TrackingName1"] = line.split(":", 1)[1].strip()
                 elif "TrackingOption1" in line:
                     data["TrackingOption1"] = line.split(":", 1)[1].strip()
+                elif "TrackingName2" in line:
+                    data["TrackingName2"] = line.split(":", 1)[1].strip()
+                elif "TrackingOption2" in line:
+                    data["TrackingOption2"] = line.split(":", 1)[1].strip()
+                elif "Currency" in line:
+                    data["Currency"] = line.split(":", 1)[1].strip()
 
         except Exception as e:
             print("Error with OpenAI API:", e)
@@ -172,6 +260,10 @@ class InvoiceProcessorApp:
             supplier_match = re.search(r"(Supplier|From):\s*([\w\s]+)", text, re.IGNORECASE)
             if supplier_match:
                 data["*ContactName"] = supplier_match.group(2).strip()
+        if not data["EmailAddress"]:
+            email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", combined_text)
+            if email_match:
+                data["EmailAddress"] = email_match.group(0).strip()
         if not data["*InvoiceNumber"]:
             data["*InvoiceNumber"] = "Unknown Invoice Number"
         if not data["*InvoiceDate"]:

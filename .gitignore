@@ -167,3 +167,7 @@ cython_debug/
 /python-scripts-pdf-csv/Invoices/*
 /python-scripts-pdf-csv/CsvGenerated/*
 .DS_Store
+/python-script-pdf-csv/Troubleshooting/*
+/python-script-pdf-csv/Troubleshooting/
+/Troubleshooting/
+/Troubleshooting/*
