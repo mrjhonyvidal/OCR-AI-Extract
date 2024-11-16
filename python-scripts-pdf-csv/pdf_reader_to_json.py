@@ -5,7 +5,7 @@ import requests
 import pytesseract
 from pdf2image import convert_from_path
 import tkinter as tk
-from tkinter import filedialog, messagebox, Listbox
+from tkinter import filedialog, messagebox, Listbox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import pdfplumber
 from dotenv import load_dotenv
@@ -23,30 +23,45 @@ client.api_key = os.getenv("OPENAI_API_KEY")
 # Path to Poppler on macOS
 POPPLER_PATH = "/opt/homebrew/bin"
 
-WEBHOOK_URL = "https://hook.eu2.make.com/dbm2qndj0pkwjf9yn70aw5v7i1elpgx5"
+WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 
 class InvoiceProcessorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Invoice Processor with Drag-and-Drop")
-        self.root.geometry("500x400")
+        self.root.geometry("700x500")
 
-        # List to store file paths
         self.files = []
 
-        # Set up Drag-and-Drop
+        # Drag-and-Drop Setup
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
 
-        # File selection button
+        # Buttons and Listboxes
         self.select_button = tk.Button(root, text="Select PDF Files", command=self.select_files)
-        self.select_button.pack(pady=10)
+        self.select_button.pack(pady=5)
 
-        # Listbox to show selected files
-        self.file_listbox = Listbox(root, width=50, height=10)
-        self.file_listbox.pack(pady=10)
+        self.file_listbox = Listbox(root, width=50, height=10, selectmode=tk.BROWSE)
+        self.file_listbox.pack(pady=5)
 
-        # Process button
+        self.progress_label = tk.Label(root, text="Progress:")
+        self.progress_label.pack()
+
+        self.progress_bar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=400, mode="determinate")
+        self.progress_bar.pack(pady=5)
+
+        self.processed_label = tk.Label(root, text="Processed Files:")
+        self.processed_label.pack()
+
+        self.processed_listbox = Listbox(root, width=50, height=5)
+        self.processed_listbox.pack(pady=5)
+
+        self.failed_label = tk.Label(root, text="Failed Files:")
+        self.failed_label.pack()
+
+        self.failed_listbox = Listbox(root, width=50, height=5)
+        self.failed_listbox.pack(pady=5)
+
         self.process_button = tk.Button(root, text="Process Files", command=self.process_files)
         self.process_button.pack(pady=10)
 
@@ -73,14 +88,60 @@ class InvoiceProcessorApp:
             messagebox.showwarning("No Files Selected", "Please select or drop PDF files to process.")
             return
 
-        for file in self.files:
+        total_files = len(self.files)
+        self.progress_bar["maximum"] = total_files
+        self.progress_bar["value"] = 0
+
+        for file in list(self.files):  # Iterate over a copy of the file list
             extracted_data = self.extract_data_from_pdf(file)
             if extracted_data:
                 success = self.send_to_webhook(extracted_data)
                 if success:
-                    messagebox.showinfo("Success", f"Extracted data from {os.path.basename(file)} was sent successfully!")
+                    self.processed_listbox.insert(tk.END, os.path.basename(file))
                 else:
-                    messagebox.showerror("Error", f"Failed to send data from {os.path.basename(file)}.")
+                    self.failed_listbox.insert(tk.END, os.path.basename(file))
+            else:
+                self.failed_listbox.insert(tk.END, os.path.basename(file))
+
+            # Update progress bar and remove processed file from the list
+            self.files.remove(file)
+            self.file_listbox.delete(0)  # Remove the first item in the listbox
+            self.progress_bar["value"] += 1
+            self.root.update_idletasks()  # Refresh the UI dynamically
+
+        if not self.failed_listbox.size():
+            messagebox.showinfo("Success", "All files processed successfully!")
+        else:
+            messagebox.showwarning("Partial Success", "Some files failed to process. Check the failed files list.")
+
+        # To store names of files that failed to send
+        failed_files = []
+
+        for file in self.files:
+            extracted_data = self.extract_data_from_pdf(file)
+            if extracted_data:
+                success = self.send_to_webhook(extracted_data)
+                if not success:
+                    # Add the file name to the failure list
+                    failed_files.append(os.path.basename(file))
+
+        # Show a single message after processing all files
+        if not failed_files:
+            messagebox.showinfo("Success", "All extracted data were sent successfully!")
+            self.clear_files()
+        else:
+            failed_files_str = "\n".join(failed_files)
+            messagebox.showerror(
+                "Error",
+                f"Some files failed to send:\n{failed_files_str}\nCheck the logs for more details."
+            )
+
+    def clear_files(self):
+        """Clear the selected files and reset the listbox."""
+        # Clear the list of files
+        self.files = []
+         # Reset the listbox
+        self.file_listbox.delete(0, tk.END)
 
     def extract_data_from_pdf(self, file_path):
         data = {
