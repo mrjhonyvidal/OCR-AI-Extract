@@ -105,14 +105,33 @@ class InvoiceProcessorApp:
             for page in pdf.pages:
                 text += page.extract_text() or ""
 
-        prompt = f"Extract the following details from this invoice text:\n\n{text}\n\n"
-        prompt += "Extract: Supplier name, Invoice number, purchase order number or reference, Value, Invoice date, and Due date."
+        prompt =f"""
+        You are a helpful assistant for extracting structured details from invoices. Below is the invoice text:
+
+        {text}
+
+        Your task is to extract the following details:
+        1. *ContactName: Extract the company name from the logo or branding text at the top of the invoice. If not found, use other references like the Supplier section.
+        2. *InvoiceNumber: Extract the invoice number.
+        3. *InvoiceDate: Extract the invoice date and format it as DD/MM/YYYY.
+        4. *DueDate: Calculate the due date based on the payment terms.
+        5. Total: Extract the total invoice value.
+        6. TrackingOption1: Identify the order reference or purchase order number.
+
+        Provide the results in the format:
+        *ContactName: [Company Name]
+        *InvoiceNumber: [Invoice Number]
+        *InvoiceDate: [Invoice Date]
+        *DueDate: [Due Date]
+        Total: [Invoice Total]
+        TrackingOption1: [Order Reference]
+        """
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts invoice details."},
+                    {"role": "system", "content": "You are a helpful assistant"},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1000
@@ -122,53 +141,58 @@ class InvoiceProcessorApp:
             ai_extracted_data = ai_response.split("\n")
             
             for line in ai_extracted_data:
-                if "Supplier" in line:
-                    supplier_name = line.split(":")[1].strip()
-                    if "Catercall" not in supplier_name:
-                        data["*ContactName"] = supplier_name
-                elif "Invoice number" in line:
-                    data["*InvoiceNumber"] = line.split(":")[1].strip()
-                elif "Invoice date" in line:
-                    date_str = line.split(":")[1].strip()
+                line = line.strip()
+                if "*ContactName" in line:
+                    data["*ContactName"] = line.split(":", 1)[1].strip()
+                elif "*InvoiceNumber" in line:
+                    data["*InvoiceNumber"] = line.split(":", 1)[1].strip()
+                elif "*InvoiceDate" in line:
+                    date_str = line.split(":", 1)[1].strip()
                     data["*InvoiceDate"] = self.format_date(date_str)
-                    data["*DueDate"] = self.calculate_due_date(data["*InvoiceDate"])
-                elif "Value" in line:
-                    raw_total = line.split(":")[1].strip()
-                    clean_total = re.sub(r'[^\d.]', '', raw_total)
+                elif "*DueDate" in line:
+                    data["*DueDate"] = line.split(":", 1)[1].strip()
+                elif "Total" in line:
+                    raw_total = line.split(":", 1)[1].strip()
+                    clean_total = re.sub(r"[^\d.]", "", raw_total)
                     data["Total"] = f"{float(clean_total):.2f}"
-                    
-                    # Calculate *UnitAmount and TaxAmount
+
+                    # Calculate *UnitAmount and TaxAmount assuming VAT rate is 20%
                     data["*UnitAmount"] = f"{float(clean_total) / 1.2:.2f}"
                     data["TaxAmount"] = f"{float(clean_total) - float(data['*UnitAmount']):.2f}"
-                elif "Description" in line:
-                    data["Description"] = line.split(":")[1].strip()
-                elif any(label in line.lower() for label in ["reference", "order number", "purchase order"]):
-                    po_number = line.split(":")[1].strip()
-                    data["TrackingOption1"] = self.match_tracking_option(po_number)
+                elif "TrackingOption1" in line:
+                    data["TrackingOption1"] = line.split(":", 1)[1].strip()
 
         except Exception as e:
             print("Error with OpenAI API:", e)
             messagebox.showerror("AI Error", f"Could not process the invoice data using AI. Error: {e}")
             return None
 
-        # Fallback: If no supplier name was extracted, attempt regex-based identification
+         # Fallbacks for missing data
         if not data["*ContactName"]:
             supplier_match = re.search(r"(Supplier|From):\s*([\w\s]+)", text, re.IGNORECASE)
             if supplier_match:
-                supplier_name = supplier_match.group(2).strip()
-                if "Catercall" not in supplier_name:
-                    data["*ContactName"] = supplier_name
+                data["*ContactName"] = supplier_match.group(2).strip()
+        if not data["*InvoiceNumber"]:
+            data["*InvoiceNumber"] = "Unknown Invoice Number"
+        if not data["*InvoiceDate"]:
+            data["*InvoiceDate"] = "Invalid Date"
+            data["*DueDate"] = "Invalid Due Date"
+        if not data["Total"]:
+            data["Total"] = "0.00"
+            data["*UnitAmount"] = "0.00"
+            data["TaxAmount"] = "0.00"
 
         return data
 
     def format_date(self, date_str):
-        try:
-            return datetime.strptime(date_str, "%d-%b-%y").strftime("%d/%m/%Y")
-        except ValueError:
+        date_formats = ["%d-%b-%y", "%d/%m/%Y", "%Y-%m-%d"]
+        for fmt in date_formats:
             try:
-                return datetime.strptime(date_str, "%d/%m/%Y").strftime("%d/%m/%Y")
+                return datetime.strptime(date_str, fmt).strftime("%d/%m/%Y")
             except ValueError:
-                return date_str
+                continue
+        print(f"Warning: Unable to format date '{date_str}'")
+        return "Invalid Date"
 
     def calculate_due_date(self, invoice_date_str):
         try:

@@ -165,4 +165,5 @@ cython_debug/
 /Invoices
 /Invoices/*
 /python-scripts-pdf-csv/Invoices/*
+/python-scripts-pdf-csv/CsvGenerated/*
 .DS_Store
