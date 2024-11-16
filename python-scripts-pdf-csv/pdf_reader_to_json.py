@@ -197,9 +197,9 @@ class InvoiceProcessorApp:
         - Use context from the invoice (e.g., headings, labels, and patterns) to identify each field correctly.
         - Follow these instructions for each field:
 
-        1. **ContactName**: Extract the **company name** based on prominent branding, header, or logo text (e.g., DUCK ISLAND). Avoid supplier names in "Ship To" or "Billing Address" unless they are clearly the company.
+        1. **ContactName**: Extract the **company name** based on prominent branding, header, or logo text. (e.g., DUCK ISLAND). Avoid using names like "Catercall Ltd," "CATERCALL LTD," or "Catercall LTD". Avoid using supplier names or addresses found in "Ship To" or "Billing Address" unless the invoice explicitly identifies them as the issuing company.
         2. **EmailAddress**: Extract the first valid email address (e.g., custserv@nisbets.co.uk). If no email is present, leave it as an empty string.
-        3. **POAddressLine1-4**: Extract up to 4 address lines under the "Ship To" or "Delivery Address" section. Ensure the lines are in the correct order. If there are fewer than 4 lines, leave the remaining lines as empty strings.
+        3. **POAddressLine1-4**: Extract up to 4 address lines under the "Ship To" or "Delivery Address" section. Avoid addresses associated with the issuer (e.g., Catercall Ltd) unless explicitly indicated as the shipping address. Ensure the lines are in the correct order. If there are fewer than 4 lines, leave the remaining lines as empty strings.
         4. **POCity**: Extract the city from the shipping address.
         5. **PORegion**: Extract the region, county, or state from the shipping address, if provided. Leave blank if missing.
         6. **POPostalCode**: Extract the postal code from the shipping address. Ensure correct formatting (e.g., SM4 4LU).
@@ -207,22 +207,30 @@ class InvoiceProcessorApp:
         8. **InvoiceNumber**: Extract the invoice number (e.g., 30114156) from headings like "Invoice No" or "Invoice Number."
         9. **InvoiceDate**: Extract the invoice date (e.g., 13/11/2024) and ensure it is in DD/MM/YYYY format.
         10. **DueDate**: Calculate the due date based on payment terms (e.g., "30 days from the invoice date") and display it in DD/MM/YYYY format. If payment terms are missing, assume a default of 30 days.
-        11. **Total**: Extract the total invoice amount (e.g., 55.82 GBP). If the currency is explicitly mentioned, include it; otherwise, default to "GBP."
+        11. **Total**: Extract the total invoice amount (e.g., 55.82) without the currency symbol. If the currency is explicitly mentioned, add it as a separate "Currency" field, defaulting to "GBP" if absent.
         12. **InventoryItemCode**: Extract all item codes (e.g., "C/HW5000(2)") listed in the product table.
         13. **Description**: Extract all product descriptions (e.g., "Classic Hand Wash 5L packed in 2") listed in the product table.
         14. **Quantity**: Extract all quantities (e.g., "1") from the product table.
         15. **UnitAmount**: Extract all unit prices (e.g., "33.57") for items in the product table.
         16. **AccountCode**: Default to "540" unless another account code is explicitly mentioned.
         17. **TaxType**: Extract the tax type (e.g., "20% (VAT on Expenses)"). Default to "20% (VAT on Expenses)" if not specified.
-        18. **TaxAmount**: Extract the total tax amount (e.g., 9.30 GBP) from the invoice.
+        18. **TaxAmount**: Extract the total tax amount (e.g., 9.30) without the currency symbol.
         19. **TrackingName1**: Extract any tracking names or labels (e.g., "Order Reference").
-        20. **TrackingOption1**: Extract any tracking option values (e.g., "H150690").
+        20. **TrackingOption1**: Extract any tracking option values (e.g., "H150690") and infer its associated tracking category based on the following rules:
+            - If the value starts with "C", label it as **"Caterspeed"**.
+            - If the value starts with "H", label it as **"Hotel Buyer"**.
+            - If the value starts with "R", label it as **"Restaurant Supply Store"**.
+            - For all other cases, default the label to **"The Restaurant Store"**.
         21. **TrackingName2** and **TrackingOption2**: Extract any additional tracking details, if available. Leave blank if none exist.
         22. **Currency**: Extract the currency (e.g., GBP). Default to "GBP" if not explicitly mentioned.
 
         ### Important Notes:
         - Ensure all extracted data matches the context and structure of the invoice.
+        - Avoid using "Catercall Ltd," "CATERCALL LTD," "Catercall LTD," or similar variations for **ContactName**.
+        - For **POAddressLine1-4**, avoid using addresses associated with Catercall Ltd or its variations unless explicitly indicated as the "Ship To" address.
         - Format your response as valid JSON with proper key-value pairs for all fields. Missing or unavailable fields should have an empty string ("") as their value.
+        - Apply the rules for **TrackingOption1** to provide meaningful labels based on the given tracking option value.
+        - Format all numerical values (e.g., Total, TaxAmount, UnitAmount) as pure numbers without currency symbols.
         - If data for certain fields exists in multiple places (e.g., addresses), prioritize the most relevant section (e.g., "Ship To" for shipping details).
 
         ### Example JSON Output:
@@ -249,7 +257,7 @@ class InvoiceProcessorApp:
             "*TaxType": "20% (VAT on Expenses)",
             "TaxAmount": "9.30",
             "TrackingName1": "Order Reference",
-            "TrackingOption1": "H150690",
+            "TrackingOption1": "Hotel Buyer",
             "TrackingName2": "",
             "TrackingOption2": "",
             "Currency": "GBP"
